@@ -74,7 +74,7 @@ HARDWARE_REPLACEMENT = """      instance.definition.set_attribute(D, 'motion_key
 def patch(name: str, original: bytes) -> bytes:
     if name == "plany/hardware.rb":
         if blob_sha(original) != BASE_HARDWARE_BLOB:
-            raise RuntimeError("Not the approved original hardware.rb")
+            raise RuntimeError("Base RBZ hardware differs: actual " + blob_sha(original) + " expected " + BASE_HARDWARE_BLOB + " ; anchor=" + str(HARDWARE_ANCHOR.encode("utf-8") in original) + " ; context=" + repr(original[original.find(b"def self.dynamic_motion"):original.find(b"def self.dynamic_motion")+650]))
         new = replace_once(original, HARDWARE_ANCHOR, HARDWARE_REPLACEMENT)
         if blob_sha(new) != PATCHED_HARDWARE_BLOB:
             raise RuntimeError("Movement patch differs from private PR #73")
