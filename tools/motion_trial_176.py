@@ -75,7 +75,7 @@ def patch(name: str, original: bytes) -> bytes:
     # Windows release packaging preserves CRLF even though Git sources use LF.
     # Normalize only the three source-controlled files that are replaced.
     if name in {"plany/hardware.rb", "plany.rb", "plany/distribution.json"}:
-        original = original.replace(b"\\r\\n", b"\\n")
+        original = original.replace(b"\r\n", b"\n")
     if name == "plany/hardware.rb":
         if blob_sha(original) != BASE_HARDWARE_BLOB:
             raise RuntimeError("Base RBZ hardware differs: actual " + blob_sha(original) + " expected " + BASE_HARDWARE_BLOB + " ; anchor=" + str(HARDWARE_ANCHOR.encode("utf-8") in original) + " ; context=" + repr(original[original.find(b"def self.dynamic_motion"):original.find(b"def self.dynamic_motion")+650]))
