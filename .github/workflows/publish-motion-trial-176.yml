@@ -102,3 +102,4 @@ jobs:
               if i==8: raise RuntimeError('Release published without verifiable matching SHA-256')
               time.sleep(5)
           PY
+# Build revision 3: Windows CRLF normalized before source-SHA validation.
