@@ -1,0 +1,92 @@
+name: Publicar piloto 0.6.176 experimental de movimento
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/publish-motion-trial-176.yml'
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: pilot-release-v0.6.176
+  cancel-in-progress: false
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Preflight — repo e release de origem
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = 'raullqueirozz9292/Plany-Piloto'
+          test ! -e Plany-0.6.176.rbz
+          gh release view v0.6.175 -R "$GITHUB_REPOSITORY" >/dev/null
+          if gh release view v0.6.176 -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo 'v0.6.176 já existe: recusa sobrescrever uma release.'
+            exit 1
+          fi
+      - name: Download íntegro da base pública 0.6.175
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release download v0.6.175 -R "$GITHUB_REPOSITORY" -p 'Plany-0.6.175.rbz'
+      - name: Gerar candidata por patch com SHA de fonte fixado
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tools/motion_trial_176.py
+      - name: Conferir sintaxe Ruby e identidade do pacote
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import zipfile,subprocess,json,hashlib,re
+          m=json.load(open('manifest.json',encoding='utf-8'))
+          with zipfile.ZipFile(m['archive']) as z:
+              code=z.read('plany/hardware.rb')
+              p='hardware-trial-check.rb'
+              with open(p,'wb') as f:f.write(code)
+              subprocess.run(['ruby','-c',p],check=True)
+              loader=z.read('plany.rb').decode()
+              ui=z.read('plany/ui/index.html').decode()
+              dist=json.loads(z.read('plany/distribution.json'))
+              assert "extension.version = '0.6.176'" in loader
+              assert '<span class="version">0.6.176</span>' in ui
+              assert dist['channel']=='pilot' and dist['pilot']=='02'
+              assert m['distribution_kind']=='complete' and m['experimental'] is True
+          print('PASS: versão, canal, integridade e sintaxe Ruby')
+          PY
+      - name: Publicar somente piloto após todos os controles
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s Plany-0.6.176.rbz
+          test -s manifest.json
+          test -s release_notes.md
+          gh release create v0.6.176 Plany-0.6.176.rbz manifest.json \
+            --repo "$GITHUB_REPOSITORY" \
+            --title 'Plany 0.6.176 — Piloto 02 (teste de frentes)' \
+            --notes-file release_notes.md --latest
+      - name: Confirmar URL, tamanho e digest público
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json,subprocess,time
+          m=json.load(open('manifest.json',encoding='utf-8'))
+          for i in range(9):
+              r=json.loads(subprocess.check_output(['gh','api','repos/raullqueirozz9292/Plany-Piloto/releases/tags/v0.6.176']))
+              assets={x['name']:x for x in r['assets']}
+              asset=assets.get(m['archive'])
+              if asset and asset.get('digest')=='sha256:'+m['sha256'] and asset['size']>0 and not r['draft']:
+                  assert 'manifest.json' in assets
+                  print('PUBLISHED '+r['html_url'])
+                  print('SHA256 '+m['sha256'])
+                  break
+              if i==8: raise RuntimeError('Release published without verifiable matching SHA-256')
+              time.sleep(5)
+          PY
