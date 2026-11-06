@@ -34,6 +34,18 @@ jobs:
         run: |
           set -euo pipefail
           gh release download v0.6.175 -R "$GITHUB_REPOSITORY" -p 'Plany-0.6.175.rbz'
+      - name: Registrar fonte e integridade da release base
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release download v0.6.175 -R "$GITHUB_REPOSITORY" -p 'manifest.json'
+          python3 - <<'PY'
+          import json
+          m=json.load(open('manifest.json',encoding='utf-8'))
+          print('BASE_SOURCE_COMMIT='+str(m.get('source_commit')))
+          print('BASE_ARCHIVE_SHA256='+str(m.get('sha256')))
+          print('BASE_PACKAGE_FILES='+str(len(m.get('files',[]))))
+          PY
       - name: Gerar candidata por patch com SHA de fonte fixado
         shell: bash
         run: |
