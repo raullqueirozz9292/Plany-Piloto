@@ -101,8 +101,11 @@ def main():
     new_m['distribution']['pilot']='10'
     with ZipFile(OLD) as z:
         assert z.testzip() is None, 'Public RBZ corrupt'
-        names=z.namelist()
-        assert names==sorted(names) and len(names)==len(set(names)), 'Unexpected archive ordering'
+        original_names=z.namelist()
+        assert len(original_names)==len(set(original_names)), 'Duplicate paths in public baseline'
+        # The historical 0.6.184 package order is not guaranteed to be sorted.
+        # Current tools/package.py sorts source paths before writing the ZIP.
+        names=sorted(original_names)
         assert len(names)==473 and set(names)==set(old_m['files']), 'Unexpected archived file set'
         policy_old=z.read('plany/ui/editor-policy.js').decode('utf-8')
         policy_new=patch_policy(policy_old)
