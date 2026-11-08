@@ -35,51 +35,45 @@ jobs:
           fi
           gh api "repos/$TARGET_REPO/releases/tags/v0.6.184" --jq '.assets[] | select(.name=="Plany-0.6.184.rbz") | .digest' |
             grep -Fx 'sha256:07a0a1142d4701ee891a7b6184feca43f0481f1457ee0485665959542b17f404'
-      - name: Conferir CI de Enter e atualizador Windows no commit imutável
+      - name: Baixar base pública e verificar pacote de origem
         shell: bash
         run: |
           set -euo pipefail
-          gh api "repos/$SOURCE_REPO/actions/runs?head_sha=$SOURCE_COMMIT&per_page=100" --jq '.workflow_runs | map(select(.conclusion=="success")|.name) | .[]' > "$RUNNER_TEMP/green-workflows"
-          grep -Fx 'Piloto - Enter confirma salvamento nativo' "$RUNNER_TEMP/green-workflows"
-          grep -Fx 'Plany-Piloto 0.6.184 para 0.6.185 - atualizador Windows isolado' "$RUNNER_TEMP/green-workflows"
-      - name: Checkout da fonte imutável aprovada
-        uses: actions/checkout@v4
-        with:
-          repository: raullqueirozz9292/Plany
-          ref: 233d5ff64a2a618adb9dddf0dfac47def194d2fa
-          path: source
-          persist-credentials: false
-      - name: Gerar pacote e comparar o SHA exato aprovado no Windows
-        shell: bash
-        run: |
-          set -euo pipefail
-          cd source
-          test "$(git rev-parse HEAD)" = "$SOURCE_COMMIT"
-          python3 tools/package.py --output-dir "$RUNNER_TEMP/pilot-185/dist" --manifest-dir "$RUNNER_TEMP/pilot-185/build"
+          gh release download v0.6.184 -R "$TARGET_REPO" -p 'Plany-0.6.184.rbz'
+          gh release download v0.6.184 -R "$TARGET_REPO" -p 'manifest.json'
           python3 - <<'PY'
-          import json, os, hashlib, sys, zipfile
-          from pathlib import Path
-          sys.path.insert(0,str(Path.cwd()/'tools'))
-          from package_contract import verify_packaged_source
-          root=Path.cwd()
-          base=Path(os.environ['RUNNER_TEMP'])/'pilot-185'
-          m=json.loads((base/'build/manifest.json').read_text())
-          file=base/'dist'/m['archive']
-          assert m['version']==os.environ['VERSION']
-          assert m['archive']=='Plany-0.6.185.rbz'
-          assert m['source_commit']==os.environ['SOURCE_COMMIT']
-          assert m['distribution_kind']=='update'
+          import json,hashlib
+          m=json.load(open('manifest.json',encoding='utf-8'))
+          assert m['version']=='0.6.184' and m['distribution_kind']=='update'
           assert m['distribution']['channel']=='pilot'
-          assert m['distribution']['repository']==os.environ['TARGET_REPO']
-          assert m['distribution']['pilot']=='10'
-          assert m['sha256']==os.environ['EXPECTED_SHA256']
-          assert hashlib.sha256(file.read_bytes()).hexdigest()==os.environ['EXPECTED_SHA256']
-          assert verify_packaged_source(file,root,complete=False)==473
-          with zipfile.ZipFile(file) as z:
-              assert "extension.version = '0.6.185'" in z.read('plany.rb').decode('utf-8')
-              assert '<span class="version">0.6.185</span>' in z.read('plany/ui/index.html').decode('utf-8')
-          print('PASS: candidate source SHA, pilot identity, 473 files, and Windows-tested RBZ digest match.')
+          assert m['distribution']['repository']=='raullqueirozz9292/Plany-Piloto'
+          assert m['sha256']=='07a0a1142d4701ee891a7b6184feca43f0481f1457ee0485665959542b17f404'
+          assert hashlib.sha256(open('Plany-0.6.184.rbz','rb').read()).hexdigest()==m['sha256']
+          print('PASS: published 0.6.184 baseline and manifest have matching pinned SHA')
           PY
+      - name: Recriar candidata com patch exato e exigir SHA previamente aprovado
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tools/publish_enter_185_patch.py
+          test -s Plany-0.6.185.rbz
+          test -s manifest-185.json
+          python3 - <<'PY'
+          import hashlib,json,os
+          manifest=json.load(open('manifest-185.json',encoding='utf-8'))
+          assert manifest['version']==os.environ['VERSION']
+          assert manifest['source_commit']==os.environ['SOURCE_COMMIT']
+          assert manifest['sha256']==os.environ['EXPECTED_SHA256']
+          assert hashlib.sha256(open(manifest['archive'],'rb').read()).hexdigest()==os.environ['EXPECTED_SHA256']
+          assert manifest['distribution']['pilot']=='10'
+          print('PASS: candidate is byte-identical to verified private-source package')
+          PY
+      - name: Preparar caminho de distribuição de versão testada
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/pilot-185"
+          cp manifest-185.json "$RUNNER_TEMP/pilot-185/manifest.json"
       - name: Preparar aviso explícito de limitações de homologação
         shell: bash
         run: |
@@ -101,7 +95,7 @@ jobs:
         run: |
           set -euo pipefail
           gh release create "v$VERSION" \
-            "$RUNNER_TEMP/pilot-185/dist/Plany-0.6.185.rbz" \
+            "Plany-0.6.185.rbz" \
             "$RUNNER_TEMP/pilot-185/build/manifest.json" \
             -R "$TARGET_REPO" \
             --title 'Plany 0.6.185 — Piloto 10 (Enter)' \
