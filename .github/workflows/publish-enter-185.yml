@@ -1,0 +1,130 @@
+name: Publicar Plany-Piloto 0.6.185 - correção de Enter
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/publish-enter-185.yml'
+permissions:
+  contents: write
+concurrency:
+  group: piloto-release-0-6-185
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SOURCE_COMMIT: 233d5ff64a2a618adb9dddf0dfac47def194d2fa
+      EXPECTED_SHA256: 6e391489ddd19e65860ef1d80d5ffdf7d5791e8abe98f28ca5ff6180a69685b8
+      SOURCE_REPO: raullqueirozz9292/Plany
+      TARGET_REPO: raullqueirozz9292/Plany-Piloto
+      VERSION: 0.6.185
+    steps:
+      - uses: actions/checkout@v4
+      - name: Exigir canal piloto, release atual 0.6.184 e ausência de versão posterior
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = "$TARGET_REPO"
+          test "$(gh api "repos/$TARGET_REPO/releases/latest" --jq .tag_name)" = "v0.6.184"
+          if gh release view "v$VERSION" -R "$TARGET_REPO" >/dev/null 2>&1; then
+            echo 'A release 0.6.185 ja existe. Nao sobrescrever.' >&2
+            exit 1
+          fi
+          gh api "repos/$TARGET_REPO/releases/tags/v0.6.184" --jq '.assets[] | select(.name=="Plany-0.6.184.rbz") | .digest' |
+            grep -Fx 'sha256:07a0a1142d4701ee891a7b6184feca43f0481f1457ee0485665959542b17f404'
+      - name: Conferir CI de Enter e atualizador Windows no commit imutável
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api "repos/$SOURCE_REPO/actions/runs?head_sha=$SOURCE_COMMIT&per_page=100" --jq '.workflow_runs | map(select(.conclusion=="success")|.name) | .[]' > "$RUNNER_TEMP/green-workflows"
+          grep -Fx 'Piloto - Enter confirma salvamento nativo' "$RUNNER_TEMP/green-workflows"
+          grep -Fx 'Plany-Piloto 0.6.184 para 0.6.185 - atualizador Windows isolado' "$RUNNER_TEMP/green-workflows"
+      - name: Checkout da fonte imutável aprovada
+        uses: actions/checkout@v4
+        with:
+          repository: raullqueirozz9292/Plany
+          ref: 233d5ff64a2a618adb9dddf0dfac47def194d2fa
+          path: source
+          persist-credentials: false
+      - name: Gerar pacote e comparar o SHA exato aprovado no Windows
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd source
+          test "$(git rev-parse HEAD)" = "$SOURCE_COMMIT"
+          python3 tools/package.py --output-dir "$RUNNER_TEMP/pilot-185/dist" --manifest-dir "$RUNNER_TEMP/pilot-185/build"
+          python3 - <<'PY'
+          import json, os, hashlib, sys, zipfile
+          from pathlib import Path
+          sys.path.insert(0,str(Path.cwd()/'tools'))
+          from package_contract import verify_packaged_source
+          root=Path.cwd()
+          base=Path(os.environ['RUNNER_TEMP'])/'pilot-185'
+          m=json.loads((base/'build/manifest.json').read_text())
+          file=base/'dist'/m['archive']
+          assert m['version']==os.environ['VERSION']
+          assert m['archive']=='Plany-0.6.185.rbz'
+          assert m['source_commit']==os.environ['SOURCE_COMMIT']
+          assert m['distribution_kind']=='update'
+          assert m['distribution']['channel']=='pilot'
+          assert m['distribution']['repository']==os.environ['TARGET_REPO']
+          assert m['distribution']['pilot']=='10'
+          assert m['sha256']==os.environ['EXPECTED_SHA256']
+          assert hashlib.sha256(file.read_bytes()).hexdigest()==os.environ['EXPECTED_SHA256']
+          assert verify_packaged_source(file,root,complete=False)==473
+          with zipfile.ZipFile(file) as z:
+              assert "extension.version = '0.6.185'" in z.read('plany.rb').decode('utf-8')
+              assert '<span class="version">0.6.185</span>' in z.read('plany/ui/index.html').decode('utf-8')
+          print('PASS: candidate source SHA, pilot identity, 473 files, and Windows-tested RBZ digest match.')
+          PY
+      - name: Preparar aviso explícito de limitações de homologação
+        shell: bash
+        run: |
+          cat > "$RUNNER_TEMP/pilot-185/release-notes.md" <<'EOF'
+          PILOTO EXPERIMENTAL — Plany 0.6.185 · Piloto 10.
+
+          Correção focal: Enter confirma alterações na interface somente depois do recibo de gravação do SketchUp, preservando o editor aberto. Enter sem mudança não cria operação desnecessária. Preservadas as regras construtivas e os dados pessoais.
+
+          Testes: 36 cenários de interface; 23 integração JS/Ruby com modelo simulado; 13 testes de editor; 27 nomes/rascunhos; 576 valores negativos; 473 arquivos íntegros. Atualização do piloto 0.6.184 para 0.6.185, rollback e isolamento de canais passaram em 10 verificações PowerShell no Windows descartável, incluindo 351 texturas herdadas. Falhas visuais antigas da tela de produção permanecem documentadas e não foram introduzidas por este patch.
+
+          ATENÇÃO: não foi possível testar a tecla física Enter nem abrir um SKP no SketchUp 2024 real neste ambiente. Esta publicação piloto é uma candidata para avaliação assistida, NÃO uma homologação nativa. Testar primeiro em cópia descartável do projeto. Em caso de regressão, interromper e reverter pelo mecanismo de atualização/rollback, preservando seu SKP e biblioteca.
+
+          Fonte imutável: 233d5ff64a2a618adb9dddf0dfac47def194d2fa.
+          SHA-256 do RBZ: 6e391489ddd19e65860ef1d80d5ffdf7d5791e8abe98f28ca5ff6180a69685b8.
+          Canal: Plany-Piloto apenas. Plany-Distribuicao (oficial) permanece intacto.
+          EOF
+      - name: Publicar somente a release piloto 0.6.185
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release create "v$VERSION" \
+            "$RUNNER_TEMP/pilot-185/dist/Plany-0.6.185.rbz" \
+            "$RUNNER_TEMP/pilot-185/build/manifest.json" \
+            -R "$TARGET_REPO" \
+            --title 'Plany 0.6.185 — Piloto 10 (Enter)' \
+            --notes-file "$RUNNER_TEMP/pilot-185/release-notes.md" \
+            --latest
+      - name: Verificar entrega pelo atualizador sem tocar em instalação pessoal
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json,os,subprocess,time
+          repo=os.environ['TARGET_REPO']
+          for i in range(12):
+              release=json.loads(subprocess.check_output(['gh','api',f'repos/{repo}/releases/latest']))
+              assets={x['name']:x for x in release.get('assets',[])}
+              candidate=assets.get('Plany-0.6.185.rbz')
+              manifest=assets.get('manifest.json')
+              if release['tag_name']=='v0.6.185' and candidate and manifest and candidate.get('digest')=='sha256:'+os.environ['EXPECTED_SHA256'] and not release.get('draft'):
+                  print('PASS: latest pilot is publicly visible to Recarregar Plany.')
+                  print('RELEASE:',release['html_url'])
+                  print('SIZE:',candidate['size'])
+                  print('SHA256:',os.environ['EXPECTED_SHA256'])
+                  break
+              if i==11:raise RuntimeError('Published pilot release failed to become latest with matching assets/digest')
+              time.sleep(5)
+          PY
