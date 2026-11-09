@@ -154,6 +154,11 @@ def main():
         assert z.read('plany/ui/editor-policy.js')==policy_new.encode()
         assert embedded_policy_new.encode() in z.read('plany/ui/index.html')
     digest=hashlib.sha256(OUT.read_bytes()).hexdigest()
+    with ZipFile(OUT) as checkzip:
+        print('PUBLIC_PACKAGE_ORDER',[(n.filename,n.date_time,n.compress_type) for n in checkzip.infolist()[:8]],flush=True)
+        for name in ['plany.rb','plany/distribution.json','plany/ui/index.html','plany/ui/app.js','plany/ui/editor-policy.js']:
+            data=checkzip.read(name)
+            print('PUBLIC_FILE_HASH',name,hashlib.sha256(data).hexdigest(),'bytes',len(data),'crlf',data.count(b'\r\n'),'lf',data.count(b'\n'),flush=True)
     assert digest==EXPECTED, (
         f'Refusing publication: public-baseline patched package SHA {digest} differs '
         f'from fully tested source artifact {EXPECTED}.'
