@@ -117,14 +117,19 @@ def main():
         assert len(names)==473 and set(names)==set(old_m['files']), 'Unexpected archived file set'
         policy_old=z.read('plany/ui/editor-policy.js').decode('utf-8')
         policy_new=patch_policy(policy_old)
+        # package_contract reads dependency scripts in text mode (universal
+        # newlines) before embedding, whereas the physical JS file is copied
+        # byte-for-byte. Reproduce that exact distinction.
+        embedded_policy_old=policy_old.replace('\r\n','\n')
+        embedded_policy_new=policy_new.replace('\r\n','\n')
         embedded=z.read('plany/ui/index.html').decode('utf-8')
-        if embedded.count(policy_old)!=1:
+        if embedded.count(embedded_policy_old)!=1:
             center=embedded.find('root.PlanyEditorPolicy')
-            print('EMBED_POLICY_DEBUG', 'filelength',len(policy_old),'embeddedlen',len(embedded),'count',embedded.count(policy_old),'offset',center,
+            print('EMBED_POLICY_DEBUG', 'filelength',len(policy_old),'embeddedlen',len(embedded),'count',embedded.count(embedded_policy_old),'offset',center,
                   'sourceStart',repr(policy_old[:330]),'htmlAround',repr(embedded[max(0,center-60):center+330]),
                   'sourceCRLF',policy_old.count('\\r\\n'),'htmlCRLF',embedded.count('\\r\\n'),flush=True)
-        assert embedded.count(policy_old)==1, 'Cannot locate exactly one embedded editor policy'
-        embedded=must_replace(embedded,policy_old,policy_new,'embedded native policy')
+        assert embedded.count(embedded_policy_old)==1, 'Cannot locate exactly one embedded editor policy'
+        embedded=must_replace(embedded,embedded_policy_old,embedded_policy_new,'embedded native policy')
         embedded=patch_header(embedded)
         replacements={
             'plany/ui/editor-policy.js':policy_new.encode('utf-8'),
@@ -147,7 +152,7 @@ def main():
         assert z.testzip() is None
         assert set(z.namelist())==set(old_m['files'])
         assert z.read('plany/ui/editor-policy.js')==policy_new.encode()
-        assert policy_new.encode() in z.read('plany/ui/index.html')
+        assert embedded_policy_new.encode() in z.read('plany/ui/index.html')
     digest=hashlib.sha256(OUT.read_bytes()).hexdigest()
     assert digest==EXPECTED, (
         f'Refusing publication: public-baseline patched package SHA {digest} differs '
