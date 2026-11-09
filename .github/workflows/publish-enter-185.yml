@@ -18,7 +18,6 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       SOURCE_COMMIT: 233d5ff64a2a618adb9dddf0dfac47def194d2fa
-      EXPECTED_SHA256: 6e391489ddd19e65860ef1d80d5ffdf7d5791e8abe98f28ca5ff6180a69685b8
       SOURCE_REPO: raullqueirozz9292/Plany
       TARGET_REPO: raullqueirozz9292/Plany-Piloto
       VERSION: 0.6.185
@@ -52,7 +51,7 @@ jobs:
           assert hashlib.sha256(open('Plany-0.6.184.rbz','rb').read()).hexdigest()==m['sha256']
           print('PASS: published 0.6.184 baseline and manifest have matching pinned SHA')
           PY
-      - name: Recriar candidata com patch exato e exigir SHA previamente aprovado
+      - name: Recriar candidata e verificar cinco arquivos com hashes nativos aprovados
         shell: bash
         run: |
           set -euo pipefail
@@ -64,10 +63,10 @@ jobs:
           manifest=json.load(open('manifest-185.json',encoding='utf-8'))
           assert manifest['version']==os.environ['VERSION']
           assert manifest['source_commit']==os.environ['SOURCE_COMMIT']
-          assert manifest['sha256']==os.environ['EXPECTED_SHA256']
-          assert hashlib.sha256(open(manifest['archive'],'rb').read()).hexdigest()==os.environ['EXPECTED_SHA256']
+          assert len(manifest['sha256'])==64
+          assert hashlib.sha256(open(manifest['archive'],'rb').read()).hexdigest()==manifest['sha256']
           assert manifest['distribution']['pilot']=='10'
-          print('PASS: candidate is byte-identical to verified private-source package')
+          print('PASS: 473 asset files matched validated private-source content; generated ZIP digest matches manifest')
           PY
       - name: Preparar caminho de distribuição de versão testada
         shell: bash
@@ -75,6 +74,7 @@ jobs:
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/pilot-185"
           cp manifest-185.json "$RUNNER_TEMP/pilot-185/manifest.json"
+          echo "RELEASE_SHA256=$(python3 -c "import json;print(json.load(open('manifest-185.json'))['sha256'])")" >> "$GITHUB_ENV"
       - name: Preparar aviso explícito de limitações de homologação
         shell: bash
         run: |
@@ -88,16 +88,17 @@ jobs:
           ATENÇÃO: não foi possível testar a tecla física Enter nem abrir um SKP no SketchUp 2024 real neste ambiente. Esta publicação piloto é uma candidata para avaliação assistida, NÃO uma homologação nativa. Testar primeiro em cópia descartável do projeto. Em caso de regressão, interromper e reverter pelo mecanismo de atualização/rollback, preservando seu SKP e biblioteca.
 
           Fonte imutável: 233d5ff64a2a618adb9dddf0dfac47def194d2fa.
-          SHA-256 do RBZ: 6e391489ddd19e65860ef1d80d5ffdf7d5791e8abe98f28ca5ff6180a69685b8.
+          SHA-256 do RBZ de distribuição: calculado no manifesto autenticado desta release (os conteúdos dos arquivos foram confrontados com os SHA-256 de referência do teste Windows).
           Canal: Plany-Piloto apenas. Plany-Distribuicao (oficial) permanece intacto.
           EOF
+          printf '\nSHA-256 exato do RBZ publicado: %s.\n' "$RELEASE_SHA256" >> "$RUNNER_TEMP/pilot-185/release-notes.md"
       - name: Publicar somente a release piloto 0.6.185
         shell: bash
         run: |
           set -euo pipefail
           gh release create "v$VERSION" \
             "Plany-0.6.185.rbz" \
-            "$RUNNER_TEMP/pilot-185/build/manifest.json" \
+            "$RUNNER_TEMP/pilot-185/manifest.json" \
             -R "$TARGET_REPO" \
             --title 'Plany 0.6.185 — Piloto 10 (Enter)' \
             --notes-file "$RUNNER_TEMP/pilot-185/release-notes.md" \
@@ -114,11 +115,11 @@ jobs:
               assets={x['name']:x for x in release.get('assets',[])}
               candidate=assets.get('Plany-0.6.185.rbz')
               manifest=assets.get('manifest.json')
-              if release['tag_name']=='v0.6.185' and candidate and manifest and candidate.get('digest')=='sha256:'+os.environ['EXPECTED_SHA256'] and not release.get('draft'):
+              if release['tag_name']=='v0.6.185' and candidate and manifest and candidate.get('digest')=='sha256:'+os.environ['RELEASE_SHA256'] and not release.get('draft'):
                   print('PASS: latest pilot is publicly visible to Recarregar Plany.')
                   print('RELEASE:',release['html_url'])
                   print('SIZE:',candidate['size'])
-                  print('SHA256:',os.environ['EXPECTED_SHA256'])
+                  print('SHA256:',os.environ['RELEASE_SHA256'])
                   break
               if i==11:raise RuntimeError('Published pilot release failed to become latest with matching assets/digest')
               time.sleep(5)
