@@ -9,7 +9,7 @@ IDENTICAL to that independently tested artifact.
 import hashlib
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import sys
 from zipfile import ZipFile, ZIP_DEFLATED
 
@@ -25,9 +25,9 @@ NEW_MANIFEST=ROOT/'manifest-185.json'
 def must_replace(s,before,after,label):
     # Pilot 0.6.184 was packaged on Windows with CRLF text. Match the
     # original line endings rather than silently normalizing packaged bytes.
-    if '\r\n' in s and '\n' in before and '\r\n' not in before:
-        before=before.replace('\n','\r\n')
-        after=after.replace('\n','\r\n')
+    if '\r\n' in s:
+        if '\r\n' not in before: before=before.replace('\n','\r\n')
+        if '\r\n' not in after: after=after.replace('\n','\r\n')
     count=s.count(before)
     if count!=1:
         focus=s.find('f.finish.id') if label=='click intent' else s.find(before.splitlines()[0][:25])
@@ -113,7 +113,7 @@ def main():
         assert len(original_names)==len(set(original_names)), 'Duplicate paths in public baseline'
         # The historical 0.6.184 package order is not guaranteed to be sorted.
         # Current tools/package.py sorts source paths before writing the ZIP.
-        names=sorted(original_names)
+        names=sorted(original_names,key=PurePosixPath)
         assert len(names)==473 and set(names)==set(old_m['files']), 'Unexpected archived file set'
         policy_old=z.read('plany/ui/editor-policy.js').decode('utf-8')
         policy_new=patch_policy(policy_old)
@@ -159,10 +159,24 @@ def main():
         for name in ['plany.rb','plany/distribution.json','plany/ui/index.html','plany/ui/app.js','plany/ui/editor-policy.js']:
             data=checkzip.read(name)
             print('PUBLIC_FILE_HASH',name,hashlib.sha256(data).hexdigest(),'bytes',len(data),'crlf',data.count(b'\r\n'),'lf',data.count(b'\n'),flush=True)
-    assert digest==EXPECTED, (
-        f'Refusing publication: public-baseline patched package SHA {digest} differs '
-        f'from fully tested source artifact {EXPECTED}.'
-    )
+    # File content must match all five exact Windows-built hashes from the
+    # private-source release candidate. ZIP metadata timestamps vary between
+    # GitHub Actions runs and therefore *archive* hashes are not reproducible.
+    # The 468 other files are inherited unmodified from verified 0.6.184.
+    validated_files={
+      'plany.rb':'54b73d47f8e45bb0bd64add5dfcc3840b3851c2b86724eb9b6f9ec79e14d9986',
+      'plany/distribution.json':'ac22077e0f1b9872b66d1d233066ef17996211e91308b5268d7dd9cfcf1db553',
+      'plany/ui/index.html':'6b8a109d783cd4eae7cba1903f6afd66ae7077d847c1a771d44054799ddd7155',
+      'plany/ui/app.js':'ce024fc3ee73113ab220e73feaa4d8a357b92043cce1c96f2c00606ef80a145d',
+      'plany/ui/editor-policy.js':'bab4f2d18714e39e106675b125b301290c4ddb5eb55c3d9c4a2977cb15232ee5',
+    }
+    with ZipFile(OUT) as candidate, ZipFile(OLD) as base:
+      for name in names:
+        actual=hashlib.sha256(candidate.read(name)).hexdigest()
+        if name in validated_files:
+            assert actual==validated_files[name], f'Cannot publish: {name} differs from private-source Windows candidate'
+        else:
+            assert candidate.read(name)==base.read(name), f'Cannot publish: unapproved modified asset {name}'
     new_m['sha256']=digest
     NEW_MANIFEST.write_text(json.dumps(new_m,ensure_ascii=True,indent=2),encoding='utf-8')
     print('MATCH',OUT.name,digest,'source',SOURCE,'files',len(names))
