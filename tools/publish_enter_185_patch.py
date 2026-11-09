@@ -23,6 +23,11 @@ OLD_MANIFEST=ROOT/'manifest.json'
 NEW_MANIFEST=ROOT/'manifest-185.json'
 
 def must_replace(s,before,after,label):
+    # Pilot 0.6.184 was packaged on Windows with CRLF text. Match the
+    # original line endings rather than silently normalizing packaged bytes.
+    if '\r\n' in s and '\n' in before and '\r\n' not in before:
+        before=before.replace('\n','\r\n')
+        after=after.replace('\n','\r\n')
     count=s.count(before)
     if count!=1:
         focus=s.find('f.finish.id') if label=='click intent' else s.find(before.splitlines()[0][:25])
