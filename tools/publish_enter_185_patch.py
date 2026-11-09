@@ -118,6 +118,11 @@ def main():
         policy_old=z.read('plany/ui/editor-policy.js').decode('utf-8')
         policy_new=patch_policy(policy_old)
         embedded=z.read('plany/ui/index.html').decode('utf-8')
+        if embedded.count(policy_old)!=1:
+            center=embedded.find('root.PlanyEditorPolicy')
+            print('EMBED_POLICY_DEBUG', 'filelength',len(policy_old),'embeddedlen',len(embedded),'count',embedded.count(policy_old),'offset',center,
+                  'sourceStart',repr(policy_old[:330]),'htmlAround',repr(embedded[max(0,center-60):center+330]),
+                  'sourceCRLF',policy_old.count('\\r\\n'),'htmlCRLF',embedded.count('\\r\\n'),flush=True)
         assert embedded.count(policy_old)==1, 'Cannot locate exactly one embedded editor policy'
         embedded=must_replace(embedded,policy_old,policy_new,'embedded native policy')
         embedded=patch_header(embedded)
