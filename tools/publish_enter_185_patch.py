@@ -24,6 +24,9 @@ NEW_MANIFEST=ROOT/'manifest-185.json'
 
 def must_replace(s,before,after,label):
     count=s.count(before)
+    if count!=1:
+        focus=s.find('f.finish.id') if label=='click intent' else s.find(before.splitlines()[0][:25])
+        print('PATCH_ANCHOR_DEBUG', label, repr(s[max(0,focus-280):focus+650]), flush=True)
     assert count==1, f'{label}: expected exactly 1 old anchor, got {count}: {before[:140]}'
     return s.replace(before,after,1)
 
