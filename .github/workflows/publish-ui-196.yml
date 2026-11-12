@@ -1,0 +1,121 @@
+name: Publicar Piloto 0.6.196 — ajustes de seleção, títulos, chapas
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/publish-ui-196.yml'
+      - 'tools/publish_ui_196.py'
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: plany-pilot-196
+  cancel-in-progress: false
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PILOT: raullqueirozz9292/Plany-Piloto
+    steps:
+      - uses: actions/checkout@v4
+      - name: Portão de canal e versão sem sobrescrever release
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = "$PILOT"
+          test "$(gh api "repos/$PILOT/releases/latest" --jq .tag_name)" = v0.6.195
+          ! gh release view v0.6.196 --repo "$PILOT" >/dev/null 2>&1
+      - name: Base cumulativa verificada 0.6.195
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release download v0.6.195 -R "$PILOT" -p Plany-0.6.195.rbz
+          gh release download v0.6.195 -R "$PILOT" -p manifest.json
+          mv manifest.json manifest-base.json
+      - name: Recriar candidato com SHA imutável da fonte
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tools/publish_ui_196.py
+          cp manifest-196.json manifest.json
+      - name: Sintaxe JS e sete contratos visuais e de escopo focalizados
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import zipfile,json,hashlib
+          from pathlib import Path
+          m=json.load(open('manifest.json',encoding='utf-8'))
+          assert m['version']=='0.6.196' and m['source_commit']=='914b983964189a1014428a9737a3eefc013b3795'
+          assert m['distribution']['pilot']=='18' and m['distribution']['repository']=='raullqueirozz9292/Plany-Piloto'
+          with zipfile.ZipFile(m['archive']) as z:
+              app=z.read('plany/ui/app.js').decode()
+              css=z.read('plany/ui/styles.css').decode()
+              standards=z.read('plany/ui/standards.css').decode()
+              central=z.read('plany/central/app.js').decode()
+              html=z.read('plany/ui/index.html').decode()
+              Path('ui-check.js').write_text(app,encoding='utf-8')
+              Path('central-check.js').write_text(central,encoding='utf-8')
+              assert "selectionKind==='piece'||!selectionPayload.can_combine" in app
+              assert "mainTabs.hidden=settingsVisible||moduleSelected&&focusedEditor||catalogPicker||!!standaloneTrim||moduleSelected&&piecesView&&pieceEditorOpen" in app
+              assert "selectionTabs.hidden=!moduleSelected||focusedEditor||pieceActionVisible" in app
+              assert 'Inventário do conjunto' not in app
+              assert 'Configurar prateleira composta' not in app
+              assert "id!=='construction-settings'&&!root.querySelector" in app
+              assert "id==='general-settings'?'Configurar módulo':id==='solo-piece'?'Configurar peça'" in app
+              assert "className='plany-card-measure'" in app and 'white-space:nowrap' in css
+              assert '.tabs .tab{flex:1 1 auto;' in css and 'white-space:nowrap' in standards
+              assert 'const stockEssentials' not in central
+              assert "PlanyUi.group(document,index===0?'Essenciais':title.textContent" in central
+              assert 'id="solo-piece"' in html and 'id="assembly-editor"' not in html
+              assert m['distribution_kind']=='update'
+          assert hashlib.sha256(Path(m['archive']).read_bytes()).hexdigest()==m['sha256']
+          print('PASS: seleção, abas, inventário, títulos, dimensões, Central e canal')
+          PY
+          node --check ui-check.js
+          node --check central-check.js
+      - name: Relatar limites do piloto sem homologação nativa fictícia
+        shell: bash
+        run: |
+          cat > notes-196.md <<'EOF'
+          Plany 0.6.196 · Piloto 18 — correções de apresentação cumulativas sobre a 0.6.195.
+
+          - Peça avulsa selecionada: mostra somente a faixa principal Seleção / Biblioteca / Materiais / Plano de corte, sem a segunda faixa de módulos; mantém Configurar peça, nome, medidas, material e fitagem no final.
+          - Remove Inventário do conjunto da apresentação, sem apagar dados, cálculos ou controles de materiais diretos.
+          - Remove cabeçalhos repetidos em Propriedades e na prateleira composta; preserva Configurar módulo e Configurar peça.
+          - Ajusta Plano de corte para uma única linha, considerando styles.css e standards.css.
+          - Reduz somente a tipografia das dimensões nos cartões da Biblioteca, mantendo 3 colunas e o conteúdo das medidas.
+          - Retira o acordeão Essenciais dos cartões de chapas da Central, preservando outros agrupamentos.
+
+          A melhoria dos cards grandes nas quatro subtelas de módulos NÃO foi aplicada (era experimento a avaliar); unificação de prateleiras, LED e cursor nativo de conta-gotas também NÃO foram incluídos.
+
+          Verificações automáticas focalizadas: origem e SHA de todos os arquivos alterados, pacote íntegro, herança byte a byte dos demais arquivos, JS válido, estrutura e condições de navegação e identidade do canal. **A experiência nativa no SketchUp e o encaixe visual em todas as larguras ainda dependem de confirmação no piloto.** Salve o projeto antes de Recarregar Plany. Não é homologação oficial; canal oficial intacto.
+
+          Fonte imutável: 914b983964189a1014428a9737a3eefc013b3795.
+          EOF
+      - name: Publicar v0.6.196 no canal piloto
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release create v0.6.196 Plany-0.6.196.rbz manifest.json -R "$PILOT" \
+            --title 'Plany 0.6.196 — Piloto 18 (Seleção e interface)' \
+            --notes-file notes-196.md --latest
+      - name: Confirmar release e SHA encontrados pelo atualizador
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json,subprocess,time
+          m=json.load(open('manifest.json',encoding='utf-8'))
+          for i in range(12):
+              r=json.loads(subprocess.check_output(['gh','api','repos/raullqueirozz9292/Plany-Piloto/releases/latest']))
+              assets={a['name']:a for a in r.get('assets',[])}
+              rbz=assets.get(m['archive'])
+              if r['tag_name']=='v0.6.196' and rbz and rbz.get('digest')=='sha256:'+m['sha256'] and 'manifest.json' in assets and not r['draft']:
+                  print('PASS: publicado e visível para Recarregar Plany',r['html_url'])
+                  break
+              if i==11:raise RuntimeError('Release ou digest não confirmado')
+              time.sleep(4)
+          PY
