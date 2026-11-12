@@ -37,9 +37,15 @@ EXPECTED_BLOBS={
 }
 
 def git_blob_sha(data):
+    # Windows installer stores many text assets with CRLF even when Git blobs use LF.
+    data=data.replace(b'\r\n',b'\n')
     return hashlib.sha1(('blob %s\0' % len(data)).encode()+data).hexdigest()
 
 def once(s,old,new,desc):
+    # Patch source exactly, preserving the physical archive's newline convention.
+    if '\r\n' in s:
+        old=old.replace('\n','\r\n')
+        new=new.replace('\n','\r\n')
     n=s.count(old)
     assert n==1, '%s: expected unique anchor, found %s' % (desc,n)
     return s.replace(old,new,1)
