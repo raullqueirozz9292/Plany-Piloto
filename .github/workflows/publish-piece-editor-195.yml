@@ -1,0 +1,115 @@
+name: Publicar piloto 0.6.195 — ficha de peça sem montagem inventada
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'tools/publish_piece_editor_195.py'
+      - '.github/workflows/publish-piece-editor-195.yml'
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: plany-pilot-release-195
+  cancel-in-progress: false
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PILOT_REPO: raullqueirozz9292/Plany-Piloto
+    steps:
+      - uses: actions/checkout@v4
+      - name: Proteger canal, base e release já existente
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = "$PILOT_REPO"
+          test "$(gh api "repos/$PILOT_REPO/releases/latest" --jq .tag_name)" = 'v0.6.194'
+          if gh release view v0.6.195 -R "$PILOT_REPO" >/dev/null 2>&1; then
+            echo 'v0.6.195 já publicada; não sobrescrever.' >&2; exit 1
+          fi
+          test ! -e Plany-0.6.194.rbz
+      - name: Baixar somente a release piloto 0.6.194
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release download v0.6.194 -R "$PILOT_REPO" -p Plany-0.6.194.rbz
+          gh release download v0.6.194 -R "$PILOT_REPO" -p manifest.json
+          mv manifest.json manifest-base.json
+      - name: Criar versão 0.6.195 estritamente sobre a base assinada
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tools/publish_piece_editor_195.py
+          cp manifest-195.json manifest.json
+      - name: Verificação focal — sintaxe, cartão de peça, fitagem, manifesto
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import zipfile,json,hashlib
+          from pathlib import Path
+          m=json.loads(Path('manifest-195.json').read_text())
+          with zipfile.ZipFile(m['archive']) as z:
+              assert z.testzip() is None
+              script=z.read('plany/ui/app.js').decode()
+              html=z.read('plany/ui/index.html').decode()
+              Path('app-195-check.js').write_text(script,encoding='utf-8')
+              assert "selectionKind==='piece'||!selectionPayload.can_combine" in script
+              assert "soloRoot.insertBefore(soloToolbar,soloDimensions.nextSibling)" in script
+              assert "['piece'].forEach(function(prefix)" in script
+              assert "id=\"solo-preview\"" in html
+              assert "id=\"solo-name\"" in html
+              assert "id=\"assembly-editor\"" not in html
+              assert "id=\"assemble-selection\"" in html
+              assert "id=\"solo-piece\"" in html
+              assert "version\">0.6.195" in html
+              assert m['distribution']['channel']=='pilot' and m['distribution']['pilot']=='17'
+              assert m['source_commit']=='9a3f27c31644d685d50e720803a348a77d99a40f'
+          assert hashlib.sha256(Path(m['archive']).read_bytes()).hexdigest()==m['sha256']
+          print('PASS: changes isolated, source SHA validated, card and fitagem present')
+          PY
+          node --check app-195-check.js
+      - name: Documentar o alcance real da homologação
+        shell: bash
+        run: |
+          cat > release-195-notes.md <<'EOF'
+          PILOTO 17 — correção focal e cumulativa sobre 0.6.194 / Piloto 16.
+
+          Restaura a interface padrão de configuração da peça selecionada: cartão Configurar peça, nome e medidas diretamente, depois materiais e informações de fitagem. Remove o formulário de criação de módulo, seleção de função e Medidas fixas que aparecia sem solicitação. Ações legítimas de união de múltiplos itens continuam disponíveis sem a interface de papéis. Não altera peças, geometria, dados, Central nem canal oficial.
+
+          Verificações desta publicação: base do pacote SHA-256 fixada, 4 arquivos mudados no RBZ (app.js, index.html, plany.rb, distribution.json), hashes de app.js/loader/distribuição confrontados com os arquivos imutáveis da branch de correção, todos os demais arquivos byte a byte preservados, integridade ZIP e manifesto, sintaxe JavaScript e contrato de estrutura visível.
+
+          **Limite de homologação:** o SketchUp nativo e a instalação pessoal não foram acessados. Este piloto é para avaliação por Recarregar Plany, não uma certificação nativa. Salve seu projeto antes de atualizar; se notar regressão, preserve o SKP e use o retorno à versão anterior. Não são incluídos os demais itens da Issue #111.
+
+          Fonte: 9a3f27c31644d685d50e720803a348a77d99a40f.
+          EOF
+      - name: Publicar efetivamente v0.6.195 no canal piloto
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release create v0.6.195 Plany-0.6.195.rbz manifest.json \
+            --repo "$PILOT_REPO" \
+            --title 'Plany 0.6.195 — Piloto 17 (Configurar peça)' \
+            --notes-file release-195-notes.md --latest
+      - name: Confirmar que o atualizador encontra a release
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json,subprocess,time
+          m=json.load(open('manifest-195.json',encoding='utf-8'))
+          repo='raullqueirozz9292/Plany-Piloto'
+          for i in range(15):
+              release=json.loads(subprocess.check_output(['gh','api',f'repos/{repo}/releases/latest']))
+              assets={a['name']:a for a in release.get('assets',[])}
+              rbz=assets.get(m['archive'])
+              manifest=assets.get('manifest.json')
+              if release['tag_name']=='v0.6.195' and rbz and manifest and rbz.get('digest')=='sha256:'+m['sha256'] and not release.get('draft'):
+                  print('PASS: RELEASE PUBLICADA',release['html_url'])
+                  print('SHA256:',m['sha256'])
+                  break
+              if i==14:raise RuntimeError('Release não visível com digest esperado; verificar antes de usar Recarregar Plany')
+              time.sleep(4)
+          PY
