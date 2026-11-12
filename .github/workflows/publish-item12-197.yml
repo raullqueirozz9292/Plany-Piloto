@@ -55,8 +55,6 @@ jobs:
               Path('check-app-197.js').write_text(a,encoding='utf-8')
               for prefix in ('solo-',''):
                   editor = h.split('id="solo-piece"' if prefix else 'id="module-piece-editor"',1)[1]
-                  toolbar = editor.split('class="piece-editor-toolbar"',1)
-                  assert len(toolbar)==1, 'toolbar with aria-label should be present'
                   toolbar=editor.split('class="piece-editor-toolbar" aria-label="Ações da peça"',1)[1].split('</div>',1)[0]
                   assert toolbar.index('id="'+prefix+'detach-piece"') < toolbar.index('id="'+prefix+'delete-piece"')
                   assert 'Tornar peça avulsa' in toolbar and 'Excluir peça' in toolbar
