@@ -1,0 +1,113 @@
+name: Publicar Plany 0.6.197 — Item 12, ações das peças
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'tools/publish_item12_197.py'
+      - '.github/workflows/publish-item12-197.yml'
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: plany-pilot-197
+  cancel-in-progress: false
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PILOT_REPO: raullqueirozz9292/Plany-Piloto
+    steps:
+      - uses: actions/checkout@v4
+      - name: Canal e sequência protegidos
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = "$PILOT_REPO"
+          test "$(gh api "repos/$PILOT_REPO/releases/latest" --jq .tag_name)" = v0.6.196
+          ! gh release view v0.6.197 -R "$PILOT_REPO" >/dev/null 2>&1
+      - name: Obter somente o pacote da release publicada
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release download v0.6.196 -R "$PILOT_REPO" -p Plany-0.6.196.rbz
+          gh release download v0.6.196 -R "$PILOT_REPO" -p manifest.json
+          mv manifest.json manifest-base.json
+      - name: Preparar patch estrito e verificar hashes imutáveis
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tools/publish_item12_197.py
+          cp manifest-197.json manifest.json
+      - name: Provas focais do contrato, sintaxe JS e manifesto
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import zipfile,json,hashlib
+          from pathlib import Path
+          m=json.load(open('manifest.json',encoding='utf-8'))
+          with zipfile.ZipFile(m['archive']) as z:
+              a=z.read('plany/ui/app.js').decode()
+              h=z.read('plany/ui/index.html').decode()
+              css=z.read('plany/ui/styles.css').decode()
+              Path('check-app-197.js').write_text(a,encoding='utf-8')
+              for prefix in ('solo-',''):
+                  editor = h.split('id="solo-piece"' if prefix else 'id="module-piece-editor"',1)[1]
+                  toolbar=editor.split('class="piece-editor-toolbar" aria-label="Ações da peça"',1)[1].split('</div>',1)[0]
+                  assert toolbar.index('id="'+prefix+'detach-piece"') < toolbar.index('id="'+prefix+'delete-piece"')
+                  assert 'Tornar peça avulsa' in toolbar and 'Excluir peça' in toolbar
+                  back = 'solo-back-to-pieces' if prefix else 'back-to-pieces'
+                  assert 'id="'+back+'" type="button" hidden' in editor
+              assert "selectionTabs.hidden=!moduleSelected||focusedEditor||pieceActionVisible" in a
+              assert "if(kind==='piece'){fillPiece();close(kind,true);}" in a
+              assert "['delete-piece','solo-delete-piece'].forEach" in a
+              assert "['detach-piece','solo-detach-piece'].forEach" in a
+              assert "root.insertBefore(divider,groups[2])" in a
+              assert '.piece-editor-toolbar .text-button.danger{margin-left:auto}' in css
+              assert '.plany-piece-divider{display:block;height:0;border:0;border-top:1px solid var(--line);margin:16px 0;padding:0}' in css
+              assert m['version']=='0.6.197' and m['distribution']['pilot']=='19'
+              assert m['distribution']['channel']=='pilot' and m['distribution_kind']=='update'
+          assert hashlib.sha256(Path(m['archive']).read_bytes()).hexdigest()==m['sha256']
+          print('PASS: duas fichas, duas ações no topo, divisória, Cancelar, dados e canal')
+          PY
+          node --check check-app-197.js
+      - name: Notas claras sobre o limite de teste
+        shell: bash
+        run: |
+          cat > notes-197.md <<'EOF'
+          Plany 0.6.197 — Piloto 19. **Correção focal do item 12 da Issue #111.**
+
+          Em ambas as fichas (peça de módulo e peça avulsa), os comandos **Tornar peça avulsa** (esquerda, se aplicável) e **Excluir peça** (direita) ficam no topo do card, alinhados e sem quebra de linha. As opções **Ver peças do módulo** e **Ver peças avulsas do projeto** não aparecem no formulário ativo. O retorno de peças do módulo usa o botão Cancelar já existente; Concluir permanece. No espaço anteriormente ocupado pelos comandos entre medidas e MDF, há uma divisória horizontal com respiro. Campos de nome/medidas, materiais, fitagem e callbacks nativos permanecem.
+
+          Esta versão inclui as correções cumulativas da 0.6.196. **Não conclui os itens 2/3/9/10 da Issue #111.**
+
+          Testes: autenticidade do RBZ-base, mudanças restritas a cinco arquivos, hashes de quatro arquivos comparados ao commit privado de origem, integridade ZIP/manifesto, JS sintaticamente válido e verificações de estrutura/fluxos sem host nativo. **Não houve controle nem teste no SketchUp instalado pelo usuário.** Validar a apresentação em ambiente piloto após salvar o modelo; se necessário utilizar rollback para 0.6.196. Canal oficial intacto.
+
+          Fonte: c69b4f4975fd8c8d527f4544a34f6804eb0ba802.
+          EOF
+      - name: Publicar no piloto, jamais no oficial
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release create v0.6.197 Plany-0.6.197.rbz manifest.json -R "$PILOT_REPO" \
+            --title 'Plany 0.6.197 — Piloto 19 (Ações das peças)' \
+            --notes-file notes-197.md --latest
+      - name: Confirmar release latest e SHA-256 para Recarregar Plany
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json,subprocess,time
+          m=json.load(open('manifest.json',encoding='utf-8'))
+          for i in range(12):
+              r=json.loads(subprocess.check_output(['gh','api','repos/raullqueirozz9292/Plany-Piloto/releases/latest']))
+              assets={a['name']:a for a in r.get('assets',[])}
+              rbz=assets.get('Plany-0.6.197.rbz')
+              if r['tag_name']=='v0.6.197' and rbz and rbz.get('digest')=='sha256:'+m['sha256'] and 'manifest.json' in assets and not r.get('draft'):
+                  print('PASS published',r['html_url'],m['sha256'])
+                  break
+              if i==11: raise RuntimeError('Publicação/manifesto não confirmados; não informar que usuário pode recarregar.')
+              time.sleep(4)
+          PY
